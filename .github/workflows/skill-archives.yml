@@ -1,0 +1,62 @@
+name: Skill archives
+
+on:
+  pull_request:
+    paths:
+      - 'skills/**'
+      - 'scripts/package-skills.py'
+      - 'tests/test_package_skills.py'
+      - '.github/workflows/skill-archives.yml'
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
+        with:
+          enable-cache: false
+      - name: Verify skill archives
+        run: uv run --no-project --python 3.11 python -m unittest discover -s tests -p test_package_skills.py -v
+      - name: Package skills
+        run: |
+          uv run --no-project --python 3.11 python scripts/package-skills.py --output dist/skills
+          cd dist/skills
+          sha256sum dots-xangi.zip xangi-dots.zip > SHA256SUMS
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: skill-archives
+          path: dist/skills/
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    if: github.event_name == 'release'
+    needs: package
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: skill-archives
+          path: dist/skills
+      - name: Verify checksums
+        working-directory: dist/skills
+        run: sha256sum --check SHA256SUMS
+      - name: Attach skills to the published release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$RELEASE_TAG" dist/skills/dots-xangi.zip dist/skills/xangi-dots.zip dist/skills/SHA256SUMS --clobber

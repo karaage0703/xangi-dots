@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 2,
+  "id": "xangi-dots",
+  "displayName": "xangi-dots",
+  "description": "Dotsとxangiの間で依頼を受け渡し、結果と通知の状態を保存します。",
+  "permissions": [
+    "workspaceの.xangi-dotsに依頼・結果・接続秘密を保存",
+    "localhostで管理APIとDots用MCPサーバーを起動",
+    "OpenAI/ChatGPTの検証済みHTTPS宛先へイベント送信",
+    "設定したxangi CLIで依頼元へ結果通知、固定受付先へDots起点の依頼通知"
+  ],
+  "version": "0.1.0",
+  "entrypoint": "scripts/xangi-dots",
+  "runtime": {
+    "kind": "managed-http"
+  },
+  "setup": {
+    "instructions": "XANGI_SETUP.md"
+  },
+  "capabilities": [
+    {
+      "id": "dots.jobs",
+      "protocol": "http",
+      "healthPath": "/health"
+    }
+  ]
+}
