@@ -6,6 +6,18 @@ import subprocess
 import time
 
 
+class NotificationCLIError(ValueError):
+    """A safe reason that contains no CLI output or credentials."""
+
+    def __init__(self, returncode):
+        self.reason = f"cli_exit_{returncode}"
+        super().__init__(self.reason)
+
+
+def notification_error(exc):
+    return exc.reason if isinstance(exc, NotificationCLIError) else type(exc).__name__
+
+
 class Notifier:
     def __init__(self, store, cli=None, runner=subprocess.run, progress=False):
         self.store, self.cli, self.runner = store, cli, runner
@@ -16,7 +28,7 @@ class Notifier:
         run = self.runner([self.cli, "tool", *args], capture_output=True, text=True, timeout=20)
         if run.returncode:
             # CLI output can contain credentials or private data. Persist only the exit code.
-            raise ValueError(f"xangi CLI exit {run.returncode}")
+            raise NotificationCLIError(run.returncode)
         return run.stdout
 
     def update(self, job_id, status, trigger_id=None, error=None):
@@ -92,7 +104,7 @@ class Notifier:
                     raise ValueError("Trigger receipt missing; check xangi before resending")
                 self.update(job_id, "accepted", match[1])
             except (OSError, ValueError, subprocess.SubprocessError) as exc:
-                self.update(job_id, "needs_review", error=type(exc).__name__)
+                self.update(job_id, "needs_review", error=notification_error(exc))
 
         with self.store.lock:
             watching = self.store.db.execute(
@@ -118,4 +130,4 @@ class Notifier:
                 self.update(row["job_id"], state)
             except (OSError, ValueError, AttributeError, subprocess.SubprocessError) as exc:
                 # Status reads are safe to retry; the trigger itself is not sent again.
-                self.update(row["job_id"], row["status"], error=type(exc).__name__)
+                self.update(row["job_id"], row["status"], error=notification_error(exc))

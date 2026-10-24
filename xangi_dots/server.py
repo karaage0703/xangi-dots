@@ -36,7 +36,16 @@ class BoundedServer(ThreadingHTTPServer):
 
 
 def make_server(
-    store, events, token, *, worker=False, port=0, connection=None, native=None, requests=None
+    store,
+    events,
+    token,
+    *,
+    worker=False,
+    port=0,
+    connection=None,
+    native=None,
+    requests=None,
+    health_provider=None,
 ):
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
@@ -116,7 +125,7 @@ def make_server(
                 except ValueError:
                     return self.reply(404)
             if self.path == "/health":
-                return self.reply(200, store.health())
+                return self.reply(200, health_provider() if health_provider else store.health())
             if self.path == "/connection":
                 return self.reply(200, connection or {})
             if self.path == "/jobs":
@@ -189,6 +198,11 @@ def make_server(
                     }:
                         raise ValueError("Unknown request fields")
                     return self.reply(201, store.enqueue(**msg))
+                if self.path.startswith("/jobs/") and self.path.endswith("/followups"):
+                    parts = self.path.split("/")
+                    if len(parts) != 4 or set(msg) != {"request_key", "message"}:
+                        raise ValueError("Invalid follow-up fields")
+                    return self.reply(201, store.followup(parts[2], **msg))
                 if self.path == "/files/import-local" and native is not None:
                     if set(msg) != {"path", "upload_key", "mime_type"}:
                         raise ValueError("Invalid import fields")

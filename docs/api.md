@@ -4,7 +4,7 @@
 
 親が生成したBearer tokenを要求します。`extension_request`を使えば認証はxangi側が付けます。
 
-- `GET /health`: ready、状態別の件数、有効な購読数。
+- `GET /health`: ready、状態別の件数、有効な購読数、notification_transport（configured・ready・last_error）。通知設定済みで疎通失敗ならready=false。
 - `GET /connection`: MCPポート、秘密path、state保存場所、通知有効フラグ。秘密情報として扱う。
 - `POST /jobs`: `request_key`（1〜200字）、`prompt`（1〜20,000字）、`origin`（platform/channel）、任意の`timeout_seconds`（60〜604800、既定3600）と`attachments`（保存済みinput file IDの配列）。originと添付は登録後に変更不可。
 - `GET /jobs`: 最新100件。特定の古い依頼はIDで取得。
@@ -88,3 +88,9 @@ statusはqueued/running/completed/failed/expired/cancelled。dispatchはpending/
 - `get_xangi_request`の`files`: 入力はdirection=reverse_input、成果物はreverse_output。request_id・size・sha256・statusを含みます。親は既存`/files/<id>/export-local`で入力を取得できます。
 
 入出力合計8件。upload_keyは逆方向入力・依頼別出力ごとに独立し、再送で重複作成しません。未完成成果物があればcompleted保存を拒否します。active依頼の添付は削除できません。取消・期限切れ後の成果物登録、別依頼のリンク発行を拒否します。
+
+## Parent follow-ups
+
+`POST /jobs/<job_id>/followups` (admin authentication) accepts `request_key` and `message` (max 4000 characters). Active jobs only; at most 50 messages per job. Identical retries return the original message; conflicting key reuse is rejected. The job claim, deadline, origin and work remain unchanged.
+
+`GET /jobs/<id>` exposes `followups` with `id`, `message`, `created_at`, and `acknowledged_at`. The existing `job.created` inbox event also signals follow-ups to queued/running jobs; consumers must inspect get_job and must not reclaim running jobs. Late subscriptions receive unacknowledged follow-ups. The original claimant calls MCP `acknowledge_followup(job_id, claim_token, message_id)` after reading, then reports progress separately. Acknowledgment is not approval or completion. Terminal jobs cancel pending event delivery. Browser automation is not used.

@@ -26,10 +26,10 @@ jobs:
         with:
           enable-cache: false
       - name: Verify skill archives
-        run: uv run --no-project --python 3.11 python -m unittest discover -s tests -p test_package_skills.py -v
+        run: uv run --no-project --python 3.12 python -m unittest discover -s tests -p test_package_skills.py -v
       - name: Package skills
         run: |
-          uv run --no-project --python 3.11 python scripts/package-skills.py --output dist/skills
+          uv run --no-project --python 3.12 python scripts/package-skills.py --output dist/skills
           cd dist/skills
           sha256sum dots-xangi.zip xangi-dots.zip > SHA256SUMS
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
