@@ -13,6 +13,7 @@ import threading
 
 from .events import Events
 from .notify import Notifier
+from .notification_health import NotificationHealth
 from .requests import Requests
 from .native_files import NativeFiles
 from .server import make_server
@@ -58,6 +59,8 @@ def serve(workspace):
     if type(port) is not int or not 0 <= port <= 65535:
         raise ValueError("Invalid mcp_port")
     store = Store(state / "inbox.sqlite")
+    notification_health = NotificationHealth(cli)
+    notification_health.check()
     events = Events(store)
     notifier = Notifier(store, cli)
     progress_notifier = Notifier(store, cli, progress=True)
@@ -71,6 +74,7 @@ def serve(workspace):
         port=port,
         native=native,
         requests=requests,
+        health_provider=lambda: notification_health.health(store),
     )
     connection = {
         "mcp_port": worker.server_port,
@@ -81,7 +85,13 @@ def serve(workspace):
         "native_downloads_enabled": bool(native.public_base_url),
     }
     admin = make_server(
-        store, events, token, connection=connection, native=native, requests=requests
+        store,
+        events,
+        token,
+        connection=connection,
+        native=native,
+        requests=requests,
+        health_provider=lambda: notification_health.health(store),
     )
     stop = threading.Event()
     signal.signal(signal.SIGTERM, lambda *_: stop.set())
@@ -107,10 +117,10 @@ def serve(workspace):
         threading.Thread(target=maintenance, args=(action,), daemon=True)
         for action in (
             events.dispatch,
-            notifier.tick,
-            progress_notifier.tick,
+            lambda: notification_health.run(notifier.tick),
+            lambda: notification_health.run(progress_notifier.tick),
             store.expire,
-            requests.tick,
+            lambda: notification_health.run(requests.tick),
         )
     ]
     for thread in threads:

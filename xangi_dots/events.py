@@ -56,6 +56,11 @@ class Events:
                 "INSERT OR REPLACE INTO subscriptions VALUES(?,?,?,?)",
                 (sub_id, url, secret, expiry),
             )
+            for note in self.store.db.execute(
+                "SELECT f.id,f.job_id FROM followups f JOIN jobs j ON j.id=f.job_id "
+                "WHERE f.acknowledged_at IS NULL AND j.status IN ('queued','running')"
+            ).fetchall():
+                self.store.queue_followup_event(note["job_id"], note["id"], sub_id)
             for row in self.store.db.execute(
                 "SELECT id FROM jobs WHERE status='queued'"
             ).fetchall():
@@ -90,7 +95,7 @@ class Events:
             rows = self.store.db.execute(
                 """SELECT d.*,s.url,s.secret FROM deliveries d
                 JOIN subscriptions s ON s.id=d.sub_id JOIN jobs j ON j.id=d.job_id
-                WHERE j.status='queued' AND d.status='pending' AND d.next_try<=? AND s.expires>?""",
+                WHERE j.status IN ('queued','running') AND d.status='pending' AND d.next_try<=? AND s.expires>?""",
                 (time.time(), time.time()),
             ).fetchall()
         for row in rows:

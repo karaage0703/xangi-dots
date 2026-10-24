@@ -111,3 +111,5 @@ uv run python scripts/package-skills.py --output /tmp/xangi-dots-skills
 ```
 
 `dots-xangi.zip`と`xangi-dots.zip`が生成されます。xangi側もZIPを展開してスキルディレクトリへ配置できます。
+
+通知CLIには、起動元xangiの `XANGI_TOOL_SERVER` が必要です。Tool Serverの起動完了後に管理拡張を起動するxangiを利用してください。ポートを推測して設定しないでください。起動時と30秒ごとに `tool help trigger` で読み取り専用の疎通確認を行います。`/connection` の `notifications_enabled` は設定の有無であり、疎通成功は `/health` の `notification_transport.ready` で確認します。

@@ -94,3 +94,5 @@ progressテーブルは実行権を持つworkerのチェックポイントを保
 GitHub Releaseの公開イベントでは、そのタグの内容から`dots-xangi.zip`・`xangi-dots.zip`・`SHA256SUMS`を生成し、検証済みのArtifactをReleaseに添付します。添付処理だけにcontents:writeを付与し、PRの検証には書込権限を渡しません。再実行時は同名の添付を置き換えます。
 
 Releaseは管理者が公開します。このworkflowはタグ・Releaseを作成しません。別のActionsからGITHUB_TOKENでReleaseを公開した場合、その公開イベントでは後続workflowが起動しないため、公開処理側へ添付工程を統合するか、イベントが発火する認証方式を使います。詳細は[GitHubのworkflow起動条件](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow#triggering-a-workflow-from-a-workflow)を参照してください。
+
+通知用CLIの疎通確認は結果・進捗・逆方向依頼で共有します。管理プロセスは起動時と30秒間隔で副作用のないhelpコマンドを実行し、失敗時にはoutboxをsendingへ進めません。healthには秘匿情報を含まない理由を出し、通知設定だけで正常と判定しません。実送信後のCLIエラーは終了コードを保存し、成否不明のneeds_reviewは再送しません。

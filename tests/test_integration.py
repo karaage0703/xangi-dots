@@ -304,6 +304,12 @@ class InboxTests(unittest.TestCase):
 
 class LifecycleTests(unittest.TestCase):
     def test_full_process_result_to_trigger(self):
+        self.check_process_notifications(missing_target=False)
+
+    def test_full_process_missing_target_keeps_result_pending(self):
+        self.check_process_notifications(missing_target=True)
+
+    def check_process_notifications(self, missing_target):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             state = root / ".xangi-dots/test"
@@ -331,6 +337,7 @@ class LifecycleTests(unittest.TestCase):
                     **os.environ,
                     "XANGI_EXTENSION_AUTH_TOKEN": "host-secret",
                     "XANGI_EXTENSION_INSTANCE_ID": "test",
+                    "XANGI_TOOL_SERVER": "" if missing_target else "http://127.0.0.1:1",
                 },
             )
             try:
@@ -382,6 +389,22 @@ class LifecycleTests(unittest.TestCase):
                 )
                 import time
 
+                if missing_target:
+                    time.sleep(1.2)
+                    saved = request("/jobs/" + job["id"])
+                    self.assertEqual(saved["result"], "391")
+                    self.assertEqual(saved["notification"]["status"], "pending")
+                    self.assertIsNone(saved["notification"]["trigger_id"])
+                    health = request("/health")
+                    self.assertFalse(health["ready"])
+                    self.assertEqual(
+                        health["notification_transport"]["last_error"], "missing_tool_server"
+                    )
+                    self.assertFalse((root / "calls.jsonl").exists())
+                    proc.communicate(timeout=10)
+                    self.assertEqual(proc.returncode, 0)
+                    return
+
                 deadline = time.monotonic() + 8
                 while time.monotonic() < deadline:
                     saved = request("/jobs/" + job["id"])
@@ -392,9 +415,11 @@ class LifecycleTests(unittest.TestCase):
                 calls = [
                     json.loads(line) for line in (root / "calls.jsonl").read_text().splitlines()
                 ]
-                self.assertEqual(len(calls), 1)
-                self.assertIn(ORIGIN["channel"], calls[0])
-                self.assertNotIn("391", " ".join(calls[0]))
+                self.assertEqual(calls[0], ["tool", "help", "trigger"])
+                self.assertEqual(len(calls), 2)
+                self.assertIn(ORIGIN["channel"], calls[1])
+                self.assertNotIn("391", " ".join(calls[1]))
+                self.assertTrue(request("/health")["notification_transport"]["ready"])
                 proc.communicate(timeout=10)
                 self.assertEqual(proc.returncode, 0)
             finally:

@@ -137,3 +137,9 @@ xangiは管理APIから依頼本文を取得し、`/requests/<id>/claim`へ`{"cl
 5. Dotsは`get_xangi_request`の`files`にある`reverse_output`を確認し、`get_xangi_file_link(request_id,file_id)`で10分有効のURLを取得します。実行環境でダウンロードし、サイズとSHA-256を照合してください。URLの発行には`public_base_url`の設定が必要です。
 
 成果物リンクはcompleted/failedの依頼だけに発行します。入力ファイルからリンクを発行することや、別依頼・未完了・取消・期限切れの成果物を取得することは拒否します。アップロードだけして依頼しなかった入力は容量を消費するため、不要なら親のファイル削除APIで削除します。Dotsから任意のホストパスを読み書きするAPIは公開しません。
+
+### 通知経路の障害
+
+`/health` の `notification_transport` は `configured`、`ready`、`last_error` を返します。設定済みの通知経路が使えない場合、全体の `ready` もfalseになりますが、依頼・結果の保存APIは継続します。`missing_tool_server` は起動元の接続先環境の欠落、`cli_exit_N` はCLI終了コード、`cli_timeout` / `cli_unavailable` はタイムアウト / 実行不能です。秘密を含み得るCLI出力は保存しません。
+
+疎通失敗中は結果・進捗・逆方向依頼の未送信通知を保持し、30秒ごとの再確認が成功すると送信を再開します。環境変数の修正には拡張の再起動が必要です。復旧時は最新の進捗を確認し、解消済みの未送信停止通知は取り消します。既に `needs_review` の通知は送達成否が不明なので自動再送しません。triggerの受付・実会話での配信を確認して個別対応してください。

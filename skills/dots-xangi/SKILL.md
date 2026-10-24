@@ -16,6 +16,22 @@ claim後、作業の節目と15分以内ごとにreport_progress(job_id,claim_to
 stateはworking、本人の操作・直接承認待ちはwaiting_for_user、その他の実行不能はblocked。停止する前に理由と必要な操作を報告する。本人承認が済むまでは承認を推測せず、許可伝達を本人の発言として扱わない。ツール呼出し自体ができない場合はDots画面で必要な操作を示す。
 依頼をユーザーが許可した範囲で処理し、submit_result(job_id,claim_token,result,outcome)で回答を保存する。outcomeはcompleted/failed。get_jobで保存済みを再確認する。
 
+## 長時間作業と状況照会への応答
+
+長時間のxangi依頼では15分ごと、および待機・停止前にreport_progressで完了工程、保存成果、障害、次工程を記録する。sequenceを進め、同じsequenceの再試行は同一内容に限る。本人の直接承認待ちはwaiting_for_user、その他の障害はblockedを使う。承認や継続稼働を推測しない。checkpoint・ログ・終了コードを保存し、進捗を送れる段階で送る。スキルやイベント購読だけで夜通し動き続けるとは約束しない。
+
+job.createdは既存ジョブへのfollow-upでも届く。get_jobのfollowupsを確認し、元のclaimを保持する担当は未読メッセージを読んでacknowledge_followup(job_id,claim_token,message_id)を送る。これは読了確認であり回答完了ではない。runningのジョブを再claimせず、progressで回答と次工程を保存する。
+
+親から状況照会を受けたら、新しい制作として二重実行せず、元ジョブの現状・最後の完了工程・障害・保存済み成果・次工程を速やかに回答する。自分が元ジョブのclaimを保持する場合はそのprogressも更新する。別実行の内部状態やclaim_tokenが見えなければ、その制約を明記し、claimの奪取や稼働の断定をしない。照会が別ジョブなら通常どおり照会ジョブをclaimし回答をsubmit_resultで保存する。照会を受けたことを理由に元制作を完了扱いしない。
+
+### progressや成果保存が失敗したとき
+
+制作進捗と通信障害を分け、エラー時刻・エラー種別・最後の成功・checkpoint・未送信成果をローカルに保存し、利用可能な元dot会話へ即時報告する。トークン等の秘密は書かない。保存失敗のまま長時間無報告で続けない。
+
+claim不一致では新しいclaim_keyを作らず、他担当のclaimを取得しない。元実行が元のclaim_keyを保持し、APIが同じキーでの冪等再取得を保証している場合に限り、同じjob/同じキーで1回だけ確認する。拒否・元キー不明・終了済みなら止めて報告し、状態を変更して迂回しない。復旧後は現在のprogress.sequenceを取得し、未送信成果を保存してfile ID/ready/hashと次工程を返す。
+
+読了APIが一覧にないときは照会IDと回答をprogressへ残し、API未実施を区別する。元実行以外が内部状態を推測して回答しない。
+
 ## 2. xangiへ依頼する
 
 request_xangi(request_key,prompt,timeout_seconds)を呼び受付IDを保存する。標準期限3600秒。同じ依頼の再試行では同じrequest_keyと内容を使う。
