@@ -164,22 +164,38 @@ class Store(FileStore, ProgressStore):
             job = self.db.execute("SELECT status FROM jobs WHERE id=?", (job_id,)).fetchone()
             if not job or job["status"] not in {"queued", "running"}:
                 raise ValueError("Active job required")
-            if self.db.execute(
-                "SELECT count(*) FROM followups WHERE job_id=?", (job_id,)
-            ).fetchone()[0] >= 50:
+            if (
+                self.db.execute(
+                    "SELECT count(*) FROM followups WHERE job_id=?", (job_id,)
+                ).fetchone()[0]
+                >= 50
+            ):
                 raise ValueError("Follow-up limit reached")
             message_id = "msg_" + secrets.token_hex(12)
-            self.db.execute("INSERT INTO followups VALUES(?,?,?,?,?,NULL)",
-                            (message_id, job_id, request_key, message, now_iso()))
-            for sub in self.db.execute("SELECT id FROM subscriptions WHERE expires>?", (time.time(),)):
+            self.db.execute(
+                "INSERT INTO followups VALUES(?,?,?,?,?,NULL)",
+                (message_id, job_id, request_key, message, now_iso()),
+            )
+            for sub in self.db.execute(
+                "SELECT id FROM subscriptions WHERE expires>?", (time.time(),)
+            ):
                 self.queue_followup_event(job_id, message_id, sub["id"])
-            return dict(self.db.execute("SELECT * FROM followups WHERE id=?", (message_id,)).fetchone())
+            return dict(
+                self.db.execute("SELECT * FROM followups WHERE id=?", (message_id,)).fetchone()
+            )
 
     def queue_followup_event(self, job_id, message_id, sub_id):
         # Reuse the existing inbox subscription; get_job exposes the new message.
         event_id = "evt_" + hashlib.sha256((message_id + sub_id).encode()).hexdigest()[:32]
-        body = encoded({"eventId": event_id, "name": "job.created", "timestamp": now_iso(),
-                        "data": {"job_id": job_id, "queue_id": "dots"}, "cursor": None})
+        body = encoded(
+            {
+                "eventId": event_id,
+                "name": "job.created",
+                "timestamp": now_iso(),
+                "data": {"job_id": job_id, "queue_id": "dots"},
+                "cursor": None,
+            }
+        )
         self.db.execute(
             "INSERT INTO deliveries VALUES(?,?,?,?,'pending',0,0,NULL) "
             "ON CONFLICT(event_id) DO UPDATE SET status='pending',attempts=0,next_try=0 "
@@ -192,16 +208,25 @@ class Store(FileStore, ProgressStore):
         self.expire()
         with self.lock, self.db:
             job = self.db.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
-            if (not job or job["status"] != "running" or not job["claim_token"]
-                    or not hmac.compare_digest(job["claim_token"], claim_token)):
+            if (
+                not job
+                or job["status"] != "running"
+                or not job["claim_token"]
+                or not hmac.compare_digest(job["claim_token"], claim_token)
+            ):
                 raise ValueError("Running job and valid claim required")
-            row = self.db.execute("SELECT * FROM followups WHERE id=? AND job_id=?",
-                                  (message_id, job_id)).fetchone()
+            row = self.db.execute(
+                "SELECT * FROM followups WHERE id=? AND job_id=?", (message_id, job_id)
+            ).fetchone()
             if not row:
                 raise ValueError("Unknown follow-up")
-            self.db.execute("UPDATE followups SET acknowledged_at=COALESCE(acknowledged_at,?) WHERE id=?",
-                            (now_iso(), message_id))
-            return dict(self.db.execute("SELECT * FROM followups WHERE id=?", (message_id,)).fetchone())
+            self.db.execute(
+                "UPDATE followups SET acknowledged_at=COALESCE(acknowledged_at,?) WHERE id=?",
+                (now_iso(), message_id),
+            )
+            return dict(
+                self.db.execute("SELECT * FROM followups WHERE id=?", (message_id,)).fetchone()
+            )
 
     def get(self, job_id, admin=False):
         check_text(job_id, "job_id")
@@ -212,10 +237,13 @@ class Store(FileStore, ProgressStore):
             result = self.public(row, admin)
             result["progress"] = self.progress_view(job_id)
             result["files"] = self.file_list(job_id)
-            result["followups"] = [dict(r) for r in self.db.execute(
-                "SELECT id,job_id,message,created_at,acknowledged_at FROM followups WHERE job_id=? ORDER BY rowid",
-                (job_id,),
-            )]
+            result["followups"] = [
+                dict(r)
+                for r in self.db.execute(
+                    "SELECT id,job_id,message,created_at,acknowledged_at FROM followups WHERE job_id=? ORDER BY rowid",
+                    (job_id,),
+                )
+            ]
             if admin:
                 note = self.db.execute(
                     "SELECT * FROM notifications WHERE job_id=?", (job_id,)
