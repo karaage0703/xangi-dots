@@ -18,6 +18,7 @@ from .requests import Requests
 from .native_files import NativeFiles
 from .server import make_server
 from .store import Store
+from .files import MAX_STORAGE
 from .transport import encoded
 
 
@@ -44,6 +45,7 @@ def serve(workspace):
                     "xangi_cli": None,
                     "public_base_url": None,
                     "request_destination": None,
+                    "max_storage_bytes": MAX_STORAGE,
                 },
                 stream,
             )
@@ -58,7 +60,9 @@ def serve(workspace):
     port = config.get("mcp_port", 0)
     if type(port) is not int or not 0 <= port <= 65535:
         raise ValueError("Invalid mcp_port")
-    store = Store(state / "inbox.sqlite")
+    store = Store(
+        state / "inbox.sqlite", max_storage_bytes=config.get("max_storage_bytes", MAX_STORAGE)
+    )
     notification_health = NotificationHealth(cli)
     notification_health.check()
     events = Events(store)

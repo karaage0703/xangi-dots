@@ -54,7 +54,7 @@ xangi tool extension_request --id xangi-dots --capability dots.jobs \
 
 Markdown・CSV・コードだけでなく、画像・PDF・ZIPなどのバイト列を送受信できます。**標準経路は1ファイル512MiB、入出力合計8ファイル/依頼**までです。転送できることと、Dotsがその形式の内容を解釈・生成できることは別です。Dotsへは期限付きHTTPSリンクで渡し、Dotsからは標準の`fileParams`で実ファイルを受け取ります。ChatGPTが発行するファイルCDNの一時URLだけをサーバー側で取得し、ファイル本体を会話のテキストに流しません。任意の外部URLやチャットに貼られたリンクの自動取り込みはしません。
 
-リポジトリ内で、対象instanceのCLIを指定して実行します。helperはファイルのパスとメタデータだけを`extension_request`へ渡し、同じホストで動く拡張が直接ファイルを読み書きします。保存元・保存先はworkspaceまたは`/tmp`内の絶対パスです。CLI引数長や応答の切り詰めを避けられます。対象xangiから起動された環境が必要です。ファイル本文をツール出力へ表示しません。
+リポジトリ内で、対象instanceのCLIを指定して実行します。helperはファイルのパスとメタデータだけを`extension_request`へ渡し、同じホストで動く拡張が直接ファイルを読み書きします。標準uploadは送信元を`/tmp`の専用ディレクトリへコピーしてから読み込ませるため、別workspaceのファイルも同じコマンドで送信できます。コピー前後のSHA-256と登録後に再取得したサイズ・SHA-256・input/readyを照合し、一時コピーは成功・失敗のどちらでも削除します。元のファイルは保持します。保存先（download）は拡張のworkspaceまたは`/tmp`内の絶対パスです。CLI引数長や応答の切り詰めを避けられます。対象xangiから起動された環境が必要です。ファイル本文をツール出力へ表示しません。
 
 ```bash
 uv run python -m xangi_dots.file_client --xangi-cli /absolute/path/to/xangi/bin/xangi \
@@ -69,6 +69,17 @@ xangi tool extension_request --id xangi-dots --capability dots.jobs \
   --body-json '{"request_key":"example-file-001","prompt":"添付CSVを集計し、summary.mdを保存してください。","origin":{"platform":"discord","channel":"YOUR_THREAD_ID"},"attachments":["FILE_ID_FROM_UPLOAD"]}'
 ```
 
+登録したjobに入力が添付されたことも確認します。uploadやこの確認はjobを自動作成しません。
+
+```bash
+uv run python -m xangi_dots.file_client --xangi-cli /absolute/path/to/xangi/bin/xangi \
+  verify-job FILE_ID_FROM_UPLOAD --job-id JOB_ID
+```
+
+`attachment_verified: true` は、指定jobにreadyなinputがあり、再取得したファイルの所属・サイズ・SHA-256も一致したことを示します。添付がなければ既存jobを調べ、同じ依頼を重複登録しないでください。前jobのoutput IDを新しい依頼の本文へ書いても入力添付にはなりません。前回成果を次の依頼へ渡す時は、取得したローカルファイルを新しいupload-keyでinput登録してからattachmentsへ指定します。
+
+標準uploadは最大512 MiBです。旧`--legacy-chunks`は1 MiBまでのため、標準経路の失敗時に自動で切り替えません。upload-keyの再利用には同じファイル名・内容・MIME typeを使います。既にjobへ添付済みのinputが再取得できても、新しいjobへの再添付はできません。CLIと拡張は同じホスト・ユーザーで`/tmp`を共有する必要があります。サーバーの読み取り許可範囲は変更していません。
+
 Dotsへの追加指示:
 
 > get_jobのfilesを確認し、claim後にget_file_linkで取得先を発行し、実行環境でHTTPダウンロードしてください。サイズとSHA-256を照合します。生成したファイルはreceive_fileの標準fileパラメータへ実ファイルとして渡してください。URLやfile IDを推測せず、ファイル本体を本文に流さないでください。小さなテキストだけならsave_text_fileも使えます。保存成功後にsubmit_resultで短い説明を返してください。
@@ -82,9 +93,9 @@ uv run python -m xangi_dots.file_client --xangi-cli /absolute/path/to/xangi/bin/
 
 helperは全体のサイズ・SHA-256を検証してからmode 600で新規保存します。既存ファイル・symlinkには上書きしません。ファイル名や本文をコマンドとして実行せず、ZIPの自動展開もしません。保存後はプラットフォームの通常の添付手順で返します。Discordではxangi側の返答に`MEDIA:/absolute/path/to/new-summary.md`を含めます。通知先は元の依頼の会話です。
 
-拡張側の上限は1ファイル512MiB、保存容量の合計2GiBです。ファイル本体はディスクへ逐次読み書きします。Dots側や公開proxyの上限・タイムアウトは別に適用されます。拡張の容量上限は、Dots側で処理できる容量を保証する値ではありません。
+拡張側の上限は1ファイル512MiB、保存容量の合計20GiB（既定値、`max_storage_bytes`で変更可能）です。ファイル本体はディスクへ逐次読み書きします。Dots側や公開proxyの上限・タイムアウトは別に適用されます。拡張の容量上限は、Dots側で処理できる容量を保証する値ではありません。
 
-管理APIで未使用ファイルを削除できます。アクティブなジョブの添付は削除できません。全体の保持上限は2GiBなので、保存期間に合わせて整理してください。
+管理APIで未使用ファイルを削除できます。アクティブなジョブの添付は削除できません。全体の保持上限は20GiB（既定値、`max_storage_bytes`で変更可能）なので、保存期間に合わせて整理してください。
 
 ```bash
 xangi tool extension_request --id xangi-dots --capability dots.jobs \
@@ -120,7 +131,7 @@ Dotsには次のように依頼できます。
 
 xangiは管理APIから依頼本文を取得し、`/requests/<id>/claim`へ`{"claim_key":"実行ごとの一意な値"}`を送ってから処理します。同じ実行の再試行では同じclaim_keyを使います。終わったら`/requests/<id>/result`へ`claim_token`、`result`、`outcome`（completedまたはfailed）を保存します。Dotsは受付IDで結果を取得します。単に会話へ返信しただけではDots側の依頼は完了しません。これらの手順は起動時のtriggerにも含めています。
 
-逆方向も依頼・回答にファイルを添付できます。期限は登録から60秒〜24時間、同時未完了100件、保存総数4096件。結果の説明文は最大50,000文字です。ファイルは入出力合計8件、1件512MiB、拡張全体2GiBです。完了通知イベントはなく、Dotsが結果を確認します。依頼文・回答は同じSQLiteへ保存し、元のDots向け依頼とは別に管理します。
+逆方向も依頼・回答にファイルを添付できます。期限は登録から60秒〜24時間、同時未完了100件、保存総数4096件。結果の説明文は最大50,000文字です。ファイルは入出力合計8件、1件512MiB、拡張全体20GiB（既定値、`max_storage_bytes`で変更可能）です。完了通知イベントはなく、Dotsが結果を確認します。依頼文・回答は同じSQLiteへ保存し、元のDots向け依頼とは別に管理します。
 
 通知先は登録時に固定され、Dotsから変更できません。依頼文はtrigger本文へ直接埋め込まず、外部からの依頼としてユーザーの許可範囲で扱います。許可が必要な操作は勝手に実行せず、必要事項をfailedの回答として返します。xangiから受けた仕事をDotsがxangiへ丸投げする往復ループは行わないでください。
 
@@ -143,3 +154,19 @@ xangiは管理APIから依頼本文を取得し、`/requests/<id>/claim`へ`{"cl
 `/health` の `notification_transport` は `configured`、`ready`、`last_error` を返します。設定済みの通知経路が使えない場合、全体の `ready` もfalseになりますが、依頼・結果の保存APIは継続します。`missing_tool_server` は起動元の接続先環境の欠落、`cli_exit_N` はCLI終了コード、`cli_timeout` / `cli_unavailable` はタイムアウト / 実行不能です。秘密を含み得るCLI出力は保存しません。
 
 疎通失敗中は結果・進捗・逆方向依頼の未送信通知を保持し、30秒ごとの再確認が成功すると送信を再開します。環境変数の修正には拡張の再起動が必要です。復旧時は最新の進捗を確認し、解消済みの未送信停止通知は取り消します。既に `needs_review` の通知は送達成否が不明なので自動再送しません。triggerの受付・実会話での配信を確認して個別対応してください。
+
+## 保存容量の設定
+
+workspaceの`.xangi-dots/<instance-id>/config.json`で`max_storage_bytes`を指定します。
+省略時は20 GiB（21,474,836,480バイト）。既存の設定にこの項目がなくても同じ既定値が適用されます。
+
+```json
+{"max_storage_bytes": 21474836480}
+```
+
+これは追加する項目の例です。既存のトークン・通知先などを保持して項目だけ編集し、対象拡張を再起動してください。
+値は正の整数バイト数で、文字列・小数・真偽値・0・負数は起動時に拒否します。
+現在の使用量より小さくしても既存ファイルは削除せず、新しい予約を拒否します。
+管理`GET /health`の`storage.max_bytes`、`reserved_bytes`、`available_bytes`で適用値を確認できます。
+使用量は保存済み・アップロード中の申告サイズ合計です。実ディスクの空き容量を確保する設定ではありません。
+1ファイル512 MiB・4096件の制限は別に適用されます。

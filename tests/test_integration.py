@@ -324,9 +324,10 @@ class LifecycleTests(unittest.TestCase):
                 "print('✅ トリガーを発火しました (id: fixture-1, source: fixture)')\n"
             )
             cli.chmod(0o700)
-            (state / "config.json").write_text(
-                encoded({"worker_token": "w" * 43, "mcp_port": 0, "xangi_cli": str(cli)})
-            )
+            config = {"worker_token": "w" * 43, "mcp_port": 0, "xangi_cli": str(cli)}
+            if missing_target:
+                config["max_storage_bytes"] = 123456
+            (state / "config.json").write_text(encoded(config))
             proc = subprocess.Popen(
                 [str(ROOT / "scripts/xangi-dots"), "serve", "--workspace", directory],
                 stdin=subprocess.PIPE,
@@ -360,6 +361,10 @@ class LifecycleTests(unittest.TestCase):
                     {"request_key": "notification", "prompt": "Calculate", "origin": ORIGIN},
                 )
                 connection = request("/connection")
+                self.assertEqual(
+                    request("/health")["storage"]["max_bytes"],
+                    123456 if missing_target else 20 * 1024**3,
+                )
 
                 def call(name, args):
                     req = Request(

@@ -8,6 +8,11 @@ import mimetypes
 import os
 from pathlib import Path
 import subprocess
+import tempfile
+import shutil
+import re
+
+from .native_files import MAX_NATIVE_FILE
 
 from .files import CHUNK, MAX_FILE
 
@@ -45,17 +50,40 @@ class Client:
     def upload(self, path, upload_key, mime_type=None, legacy_chunks=False):
         source = Path(path)
         if not legacy_chunks:
-            return self.request(
-                "/files/import-local",
-                "POST",
-                {
-                    "path": str(source.absolute()),
-                    "upload_key": upload_key,
-                    "mime_type": mime_type
-                    or mimetypes.guess_type(source.name)[0]
-                    or "application/octet-stream",
-                },
-            )
+            source = source.resolve(strict=True)
+            if not source.is_file() or source.stat().st_size > MAX_NATIVE_FILE:
+                raise ValueError("Expected a regular file no larger than 512 MiB")
+            with source.open("rb") as stream:
+                digest = hashlib.file_digest(stream, "sha256").hexdigest()
+            # TMPDIR may point outside the extension workspace. Keep a private,
+            # real copy in the shared /tmp allowlist; preserve the name for retries.
+            with tempfile.TemporaryDirectory(prefix="xangi-dots-input-", dir="/tmp") as stage:
+                staged = Path(stage) / source.name
+                shutil.copyfile(source, staged)
+                size = staged.stat().st_size
+                with staged.open("rb") as stream:
+                    copied = hashlib.file_digest(stream, "sha256").hexdigest()
+                with source.open("rb") as stream:
+                    current = hashlib.file_digest(stream, "sha256").hexdigest()
+                if copied != digest or current != digest or size > MAX_NATIVE_FILE:
+                    raise ValueError("Input changed while staging; use a fixed snapshot")
+                meta = self.request(
+                    "/files/import-local",
+                    "POST",
+                    {
+                        "path": str(staged),
+                        "upload_key": upload_key,
+                        "mime_type": mime_type
+                        or mimetypes.guess_type(source.name)[0]
+                        or "application/octet-stream",
+                    },
+                )
+                self.verify_input_metadata(meta, size, digest)
+                confirmed = self.request(f"/files/{meta['id']}?offset={size}")
+                self.verify_input_metadata(confirmed, size, digest)
+                if confirmed["id"] != meta["id"]:
+                    raise ValueError("File identity changed after upload")
+                return meta
         with source.open("rb") as stream:
             raw = stream.read(MAX_FILE + 1)
         if len(raw) > MAX_FILE:
@@ -86,6 +114,38 @@ class Client:
                 },
             )
         return self.request(f"/files/{meta['id']}/finish", "POST", {})
+
+    @staticmethod
+    def verify_input_metadata(meta, size, digest):
+        if not isinstance(meta, dict) or not re.fullmatch(r"file_[0-9a-f]{24}", meta.get("id", "")):
+            raise ValueError("Invalid input file ID")
+        if any(
+            meta.get(k) != v
+            for k, v in {
+                "direction": "input",
+                "status": "ready",
+                "size": size,
+                "sha256": digest,
+            }.items()
+        ):
+            raise ValueError("Input status, size or SHA-256 mismatch")
+
+    def verify_job(self, file_id, job_id):
+        if not re.fullmatch(r"file_[0-9a-f]{24}", file_id) or not re.fullmatch(
+            r"job_[0-9a-f]{24}", job_id
+        ):
+            raise ValueError("Invalid file or job ID")
+        job = self.request(f"/jobs/{job_id}")
+        rows = [row for row in job.get("files", []) if row.get("id") == file_id]
+        if len(rows) != 1 or rows[0].get("job_id") != job_id:
+            raise ValueError("Input attachment missing from job; do not create a duplicate job")
+        meta = rows[0]
+        self.verify_input_metadata(meta, meta["size"], meta["sha256"])
+        confirmed = self.request(f"/files/{file_id}?offset={meta['size']}")
+        self.verify_input_metadata(confirmed, meta["size"], meta["sha256"])
+        if confirmed["id"] != file_id or confirmed.get("job_id") != job_id:
+            raise ValueError("Input job binding changed")
+        return {"job_id": job_id, "file_id": file_id, "attachment_verified": True}
 
     def download(self, file_id, output, legacy_chunks=False):
         # O_EXCL rejects existing files and symlinks. The caller chooses the path;
@@ -157,14 +217,18 @@ def main():
     download = commands.add_parser("download")
     download.add_argument("file_id")
     download.add_argument("--out", required=True)
+    verify = commands.add_parser("verify-job", help="Check a registered input attachment")
+    verify.add_argument("file_id")
+    verify.add_argument("--job-id", required=True)
     args = parser.parse_args()
     try:
         client = Client(args.xangi_cli)
-        result = (
-            client.upload(args.path, args.upload_key, args.mime_type, args.legacy_chunks)
-            if args.command == "upload"
-            else client.download(args.file_id, args.out, args.legacy_chunks)
-        )
+        if args.command == "upload":
+            result = client.upload(args.path, args.upload_key, args.mime_type, args.legacy_chunks)
+        elif args.command == "download":
+            result = client.download(args.file_id, args.out, args.legacy_chunks)
+        else:
+            result = client.verify_job(args.file_id, args.job_id)
     except (OSError, ValueError, KeyError, subprocess.SubprocessError) as exc:
         parser.exit(
             1, f"File transfer failed ({type(exc).__name__}). Check input and saved state.\n"

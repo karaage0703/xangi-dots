@@ -14,7 +14,7 @@ from .transport import check_text, now_iso
 MAX_FILE = 1024 * 1024
 CHUNK = 48 * 1024
 MAX_FILES = 8
-MAX_STORAGE = 2 * 1024 * 1024 * 1024
+MAX_STORAGE = 20 * 1024 * 1024 * 1024
 MAX_UPLOADS = 128
 FILE_COLUMNS = "id,job_id,request_id,direction,name,mime_type,size,sha256,status,CASE WHEN disk_name IS NOT NULL THEN size ELSE length(data) END AS received"
 
@@ -149,7 +149,7 @@ class FileStore:
             count, reserved = self.db.execute(
                 "SELECT count(*),COALESCE(sum(size),0) FROM files"
             ).fetchone()
-            if reserved + size > MAX_STORAGE or count >= 4096:
+            if reserved + size > self.max_storage_bytes or count >= 4096:
                 raise ValueError("Attachment storage quota reached; remove old files")
             if (
                 self.db.execute(

@@ -23,7 +23,7 @@ Dotsから届いたtriggerではStep 3へ進む。通知先や秘密MCP URLを�
 xangi tool extension_request --id xangi-dots --capability dots.jobs --path /jobs --method POST --body-json '{"request_key":"USER_MESSAGE_ID-task1","prompt":"17×23を計算して短く回答してください","origin":{"platform":"discord","channel":"CURRENT_CONVERSATION_ID"},"timeout_seconds":3600}'
 ```
 
-実際のユーザーの依頼・現在の会話IDを使う。長時間の依頼には期限・成果物・本人が許可した作業範囲・途中報告の方針を含める。未許可の操作や費用を許可済みとして追加しない。同一依頼の再試行では同じrequest_keyを使い、既存jobを再利用する。ファイル付き依頼は拡張checkoutのdocs/usage.mdに従いfile_clientでuploadし、attachmentsにfile IDを指定する。checkoutは`xangi extension list`で確認する。
+実際のユーザーの依頼・現在の会話IDを使う。長時間の依頼には期限・成果物・本人が許可した作業範囲・途中報告の方針を含める。未許可の操作や費用を許可済みとして追加しない。同一依頼の再試行では同じrequest_keyを使い、既存jobを再利用する。ファイル付き依頼は拡張checkoutのdocs/usage.mdに従いfile_clientでuploadし、attachmentsにfile IDを指定する。checkoutは`xangi extension list`で確認する。標準uploadは別workspaceの元ファイルを/tmpへコピーしてハッシュ照合・input登録を行う。job登録後は同じfile_clientの`verify-job FILE_ID --job-id JOB_ID`で実添付を確認する。失敗時は保存済みのfile/job IDを確認し、旧chunk方式や別jobのoutput IDの本文記載へ切り替えない。
 依頼登録後はMCP Eventsによる受領を確認する。数分のqueuedだけで失敗と判断しない。購読がない、または受領されない場合は既存jobを保持し、本人に「あなたのdot」で次を手動送信してもらう。新規jobを重複登録しない。
 
 > dots-xangiスキルで既存の依頼 JOB_ID をget_jobで確認し、queuedならclaim_job成功後に処理し、submit_resultで結果を保存してください。running・終了済みなら再実行しないでください。
@@ -32,6 +32,18 @@ xangi tool extension_request --id xangi-dots --capability dots.jobs --path /jobs
 
 `GET /jobs/<id>`でqueued=未取得、running=受領、completed/failed=回答保存を確認。resultとreadyなoutputを読み、添付はfile_clientで新規パスにdownloadする。ファイルのSHA-256を照合する。
 通知CLIが有効でも配信成功はnotification.deliveredと実会話で確認する。時間のかかる処理はxangiのtrigger通知を利用し、通知無効ならschedule_addのhelpに従い結果確認を登録してIDを検証する。通知予定を作れなければ自動で後から返すと約束しない。
+
+## 添付容量と効率的な転送
+
+送信前に対象接続の管理`GET /health`で`storage.max_bytes`（上限）、`reserved_bytes`（申告サイズ合計）、`available_bytes`（残容量）を確認する。設定対応版の既定値は20 GiBだが、実効値はAPIで判断する。storage項目がない旧版や別接続の値は推測せず、稼働版・設定を確認する。
+
+上限はworkspaceの`.xangi-dots/<instance-id>/config.json`の`max_storage_bytes`で正の整数バイト数を指定できる。20 GiBは`21474836480`。他の設定を保持し、設定変更・対象拡張の再起動はユーザーの許可範囲で行う。再起動後にhealthの適用値と通知・既存jobを確認する。これは論理的な添付保存量であり、実ディスクの空き容量やDotsの利用枠とは別。
+
+次の入力と見込み成果が収まる余裕があれば、毎回の退避・削除は省く。容量拡大は通信速度や1ファイル512 MiB・1ジョブ入出力合計8件の制限を変えない。複数対象の入力は一括ZIPにし、成果は変更部分・画像・説明をまとめる。差分はbaseのSHAと入手先を指定し、受け手が元データを持つことを確認する。
+
+汎用HTTP400/-32602だけでは容量不足と断定しない。空き容量、保存4096件・未添付または作成中128件の別上限、同一upload_keyの名前/MIME/サイズ/SHA/所属job、入力pathとAPI項目を照合する。同一送信を反復せず、固定入力と同じキーを保持して原因を解消する。
+
+整理は許可された終了済みプロジェクトのファイルに限定する。file ID・job ID・名前・サイズ・SHA・upload_key・MIMEをmanifestに保存し、管理`POST /files/<file_id>/export-local`で新しいworkspaceまたは/tmp内のpathへ退避する。サイズ/SHAを照合後、job終了を再確認して管理`DELETE /files/<file_id>`で転送コピーを整理する。未回収成果・稼働中添付・許可対象外は保持する。削除後は旧file IDで取得できないため退避先を残す。healthで空きを再確認し、同じ入力・キーで標準upload→job登録→verify-jobを行う。
 
 ## 長時間の進捗と停止の確認
 
