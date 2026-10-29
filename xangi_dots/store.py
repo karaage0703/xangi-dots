@@ -9,14 +9,17 @@ import threading
 import time
 
 from .transport import check_text, encoded, now_iso
-from .files import FileStore, MAX_FILES
+from .files import FileStore, MAX_FILES, MAX_STORAGE
 from .progress import ProgressStore
 
 TERMINAL = {"completed", "failed", "cancelled", "expired"}
 
 
 class Store(FileStore, ProgressStore):
-    def __init__(self, path):
+    def __init__(self, path, *, max_storage_bytes=MAX_STORAGE):
+        if type(max_storage_bytes) is not int or max_storage_bytes <= 0:
+            raise ValueError("max_storage_bytes must be a positive integer")
+        self.max_storage_bytes = max_storage_bytes
         self.db = sqlite3.connect(path, check_same_thread=False)
         self.db.row_factory = sqlite3.Row
         self.lock = threading.RLock()
@@ -342,7 +345,13 @@ class Store(FileStore, ProgressStore):
 
     def health(self):
         with self.lock:
+            used = self.db.execute("SELECT COALESCE(sum(size),0) FROM files").fetchone()[0]
             return {
+                "storage": {
+                    "max_bytes": self.max_storage_bytes,
+                    "reserved_bytes": used,
+                    "available_bytes": max(0, self.max_storage_bytes - used),
+                },
                 "ready": True,
                 "jobs": dict(self.db.execute("SELECT status,count(*) FROM jobs GROUP BY status")),
                 "subscriptions": self.db.execute(

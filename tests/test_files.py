@@ -145,7 +145,7 @@ class FileTests(unittest.TestCase):
         for data, enc in [("!!", "base64"), ("abc", "invalid"), ("x" * (CHUNK + 1), "utf-8")]:
             with self.assertRaises(ValueError):
                 self.store.write_file(meta["id"], 0, data, enc)
-        with patch("xangi_dots.files.MAX_STORAGE", 1):
+        with patch.object(self.store, "max_storage_bytes", 1):
             with self.assertRaises(ValueError):
                 self.create(b"x", "quota")
         claim = self.claim(self.job())

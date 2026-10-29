@@ -9,7 +9,7 @@
     "OpenAI/ChatGPTの検証済みHTTPS宛先へイベント送信",
     "設定したxangi CLIで依頼元へ結果通知、固定受付先へDots起点の依頼通知"
   ],
-  "version": "0.1.1",
+  "version": "0.1.2",
   "entrypoint": "scripts/xangi-dots",
   "runtime": {
     "kind": "managed-http"

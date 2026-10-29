@@ -31,7 +31,7 @@
 
 `/jobs/<id>`の`files`には`id,job_id,direction,name,mime_type,size,sha256,status,received`を返し、本文は含めません。directionは`input`か`output`。アップロード中は`uploading`、検証済みは`ready`。管理側でinputをfinishしてから`attachments:["file_..."]`で依頼へ紐付けます。添付の束縛と依頼登録・イベント作成は同じtransactionで行い、不完全な入力をDotsへ通知しません。ファイルは1つのジョブだけに紐付きます。
 
-標準経路は1ファイル最大512MiB、分割転送APIは1MiB、1ジョブは入出力合計8件（作成中含む）。全体は申告サイズ合計2GiB・4096件、未添付または作成中は128件。使わなくなったアップロードや終了済み添付は管理APIで削除できます。上限は論理データ量で、一時ファイル・孤立ファイル・SQLite/WALの実ディスク容量とは異なります。標準転送本体はDB隣の`inbox.sqlite.files/`へ保存します。削除後もDBバックアップや空きページからの完全消去は保証しません。
+標準経路は1ファイル最大512MiB、分割転送APIは1MiB、1ジョブは入出力合計8件（作成中含む）。全体は申告サイズ合計20GiB（既定値、`max_storage_bytes`で変更可能）・4096件、未添付または作成中は128件。使わなくなったアップロードや終了済み添付は管理APIで削除できます。上限は論理データ量で、一時ファイル・孤立ファイル・SQLite/WALの実ディスク容量とは異なります。標準転送本体はDB隣の`inbox.sqlite.files/`へ保存します。削除後もDBバックアップや空きページからの完全消去は保証しません。
 
 ## Dots側: `/mcp/<worker_token>`
 
@@ -83,7 +83,7 @@ statusはqueued/running/completed/failed/expired/cancelled。dispatchはpending/
 逆方向のファイル:
 
 - MCP `upload_xangi_file(upload_key,name,mime_type,file)`: 標準fileParamsで入力を保存。返却file IDをrequest_xangiのattachmentsへ指定します。通常のxangi→Dots入力との混在、同じ入力の複数依頼への添付を拒否します。
-- 管理 `POST /requests/<id>/files/import-local`: `{claim_token,path,upload_key,mime_type}`で実行中依頼の成果物を登録。pathはworkspaceまたは/tmp、通常ファイルのみ。標準転送と同じ512MiB/件・2GiB総量を適用します。
+- 管理 `POST /requests/<id>/files/import-local`: `{claim_token,path,upload_key,mime_type}`で実行中依頼の成果物を登録。pathはworkspaceまたは/tmp、通常ファイルのみ。標準転送と同じ512MiB/件・20GiB（既定値、`max_storage_bytes`で変更可能）総量を適用します。
 - MCP `get_xangi_file_link(request_id,file_id)`: completed/failedの依頼のready成果物に限り10分有効の署名URLを返します。
 - `get_xangi_request`の`files`: 入力はdirection=reverse_input、成果物はreverse_output。request_id・size・sha256・statusを含みます。親は既存`/files/<id>/export-local`で入力を取得できます。
 
